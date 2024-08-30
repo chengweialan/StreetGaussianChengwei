@@ -1,0 +1,50 @@
+exhaust_test: false
+
+enable_dynamic: true
+
+# ModelParams
+scene_type: "EmerWaymo"
+resolution_scales: [1, 2, 4, 8, 16]
+cam_num: 3
+eval: false
+num_pts: 600000
+t_init: 0.1
+time_duration: [0, 1]
+separate_scaling_t: 0.2
+start_time: 0
+end_time: 49
+stride: 0
+original_start_time: 0
+
+load_sky_mask: true
+load_panoptic_mask: false
+load_sam_mask: false
+load_dynamic_mask: true
+load_feat_map: false
+load_normal_map: true
+
+load_intrinsic: false
+load_c2w: false
+
+save_occ_grid: true
+occ_voxel_size: 0.4
+recompute_occ_grid: false
+use_bg_gs: false
+white_background: false
+# PipelineParams
+
+
+# OptimizationParams
+iterations: 50000
+
+opacity_lr: 0.005
+
+densify_until_iter: 15000
+densify_grad_threshold: 0.00017
+sh_increase_interval: 2000
+
+
+lambda_v_reg: 0.01
+lambda_normal: 0.1
+
+
