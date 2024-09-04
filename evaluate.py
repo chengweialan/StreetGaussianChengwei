@@ -24,6 +24,8 @@ from omegaconf import OmegaConf
 from pprint import pprint, pformat
 from omegaconf import OmegaConf
 from texttable import Texttable
+import numpy as np
+import cv2
 EPS = 1e-5
 non_zero_mean = (
     lambda x: sum(x) / len(x) if len(x) > 0 else -1
@@ -54,6 +56,8 @@ def evaluation(iteration, scene : Scene, renderFunc, renderArgs, env_map=None):
             masked_ssim_test = []
             outdir = os.path.join(args.model_path, "eval", "eval_on_" + config['name'] + "data" + "_render")
             os.makedirs(outdir,exist_ok=True)
+            tsdf_folder = os.path.join(args.model_path, "eval", "tsdf")
+            os.makedirs(tsdf_folder, exist_ok=True)
             for idx, viewpoint in enumerate(tqdm(config['cameras'], bar_format="{l_bar}{bar:50}{r_bar}")):
                 render_pkg = renderFunc(viewpoint, scene.gaussians, *renderArgs, env_map=env_map)
                 image = torch.clamp(render_pkg["render"], 0.0, 1.0)
@@ -68,6 +72,24 @@ def evaluation(iteration, scene : Scene, renderFunc, renderArgs, env_map=None):
                         depth = 1 / (alpha / depth.clamp_min(EPS) + (1 - alpha) / sky_depth).clamp_min(EPS)
                     elif args.depth_blend_mode == 1:
                         depth = alpha * depth + (1 - alpha) * sky_depth
+                        
+                np.save(os.path.join(tsdf_folder, f"{viewpoint.colmap_id:03d}_depth.npy"), depth.cpu().numpy())
+                np.save(os.path.join(tsdf_folder, f"{viewpoint.colmap_id:03d}_c2w.npy"), viewpoint.c2w.cpu().numpy())
+
+                cx=viewpoint.cx
+                cy=viewpoint.cy
+                fx=viewpoint.fx
+                fy=viewpoint.fy
+                intrinsics=np.eye(3)
+                intrinsics[0,0]=fx
+                intrinsics[1,1]=fy
+                intrinsics[0,2]=cx
+                intrinsics[1,2]=cy
+
+                np.save(os.path.join(tsdf_folder, f"{viewpoint.colmap_id:03d}_intrinsics.npy"), intrinsics)
+
+                # save the image
+                cv2.imwrite(os.path.join(tsdf_folder, f"{viewpoint.colmap_id:03d}.png"), (gt_image[[2,1,0], :, :].permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8))
                 sky_mask = viewpoint.sky_mask.to("cuda")
                 dynamic_mask = viewpoint.dynamic_mask.to("cuda") if viewpoint.dynamic_mask is not None else torch.zeros_like(alpha, dtype=torch.bool)            
                 depth = visualize_depth(depth)
