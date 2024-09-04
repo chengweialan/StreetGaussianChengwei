@@ -65,6 +65,14 @@ def evaluation(iteration, scene : Scene, renderFunc, renderArgs, env_map=None):
 
                 depth = render_pkg['depth']
                 alpha = render_pkg['alpha']
+
+                # save normal
+                # normal = render_pkg['normal']
+
+                # np.save(os.path.join(tsdf_folder, f"{viewpoint.colmap_id:03d}_normal.npy"), normal.cpu().numpy())
+
+                # cv2.imwrite(os.path.join(tsdf_folder, f"{viewpoint.colmap_id:03d}_normal.png"), (normal[[2,1,0], :, :].permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8))
+                
                 sky_depth = 900
                 depth = depth / alpha.clamp_min(EPS)
                 if env_map is not None:
