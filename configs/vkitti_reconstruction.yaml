@@ -34,10 +34,3 @@ lambda_v_reg: 0.001
 load_normal_map: false
 
 enable_dynamic: true
-
-# downsampling configs
-voxel_downsample: false
-voxel_size: 0.15
-
-# visualization configs
-visualize_pointcloud: false

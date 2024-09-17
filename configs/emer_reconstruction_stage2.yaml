@@ -1,6 +1,11 @@
 exhaust_test: false
 
-enable_dynamic: false
+enable_dynamic: true
+
+test_iterations: [10,10000, 17000, 25000, 30000]
+save_iterations: [10,10000, 17000, 25000, 30000]
+checkpoint_iterations: [10,10000, 17000, 25000, 30000]
+
 
 # ModelParams
 scene_type: "EmerWaymo"
@@ -65,9 +70,10 @@ uncertainty_protected_iters: 500
 uncertainty_preserve_sky: false
 
 uncertainty_warmup_iters: 1800
-uncertainty_warmup_start: 8000
+uncertainty_warmup_start: 10000
 
-visualize_dir: "./visualization/uncertainty_onlyv/"
+visualize_dir: "./visualization/uncertainty_all1/"
 alpha_sky_start: 500000
 
-uncertainty_stage: "stage1"
+uncertainty_stage: "stage2"
+dynamic_mask_epoch: 100
