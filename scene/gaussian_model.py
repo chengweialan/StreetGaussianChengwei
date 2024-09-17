@@ -17,10 +17,11 @@ import os
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import RGB2SH
 from simple_knn._C import distCUDA2
-from utils.system_utils import mkdir_p
 from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
-from utils.general_utils import rotation_to_quaternion, quaternion_multiply
+from utils.general_utils import rotation_to_quaternion, quaternion_multiply, quaternion_to_rotation_matrix
+import torch.nn.functional as F
+from .dynamic_model import UncertaintyModel
 
 class GaussianModel:
 
@@ -79,7 +80,20 @@ class GaussianModel:
         self.velocity_decay = args.velocity_decay # 1.0
         self.random_init_point = args.random_init_point # 200000
         self.enable_dynamic = args.enable_dynamic
+        
+        if args.uncertainty_mode != "disabled":
+            if args.uncertainty_stage=="stage1":
+                self.uncertainty_model = UncertaintyModel(args).cuda()
+            if args.uncertainty_stage=="stage2":
+                self.uncertainty_model = UncertaintyModel.load(path=os.path.join(args.model_path,"stage1"), config=args)
+                for param in self.uncertainty_model.parameters():
+                    param.requires_grad = False 
+                self.uncertainty_model=self.uncertainty_model.cuda() 
 
+        else:
+            self.uncertainty_model = None
+
+        self._statically_sized_props = ["uncertainty_model"]
         self.setup_functions()
 
     @torch.no_grad()
@@ -208,10 +222,26 @@ class GaussianModel:
     def get_opacity(self):
         return self.opacity_activation(self._opacity)
 
-    @property
-    def get_normal(self):
-        return self.normal_activation(self._normal) 
     
+    def get_normal(self,c2w=None, mean3d=None, from_scaling=False):
+        if not from_scaling:
+            return self.normal_activation(self._normal) 
+        else:
+            assert c2w is not None and mean3d is not None, "c2w and mean3d must be provided if from_scaling is True"
+            quats = self.get_rotation # normalized quaternion [N, 4]
+            scaling = self.get_scaling # [N, 3]
+            normals = F.one_hot(torch.argmin(scaling, dim=-1), num_classes=3).float() # [N, 3] 
+            rotation = quaternion_to_rotation_matrix(quats) # [N, 3, 3]
+            normals = torch.bmm(rotation, normals.unsqueeze(-1)).squeeze(-1) # [N, 3]
+            normals = self.normal_activation(normals) # [N, 3]
+            viewdirs = (-mean3d.detach() + c2w[:3, 3].reshape(-1, 3).repeat(mean3d.shape[0], 1).detach()) # [N, 3]
+            viewdirs = viewdirs / viewdirs.norm(dim=-1, keepdim=True) # [N, 3]
+            dots = (normals * viewdirs).sum(dim=-1) # [N]
+            negative_dot_indices = dots < 0
+            normals[negative_dot_indices] = -normals[negative_dot_indices]
+            self._normal.data = normals # [N, 3]
+            return normals # [N, 3]
+            
     @property
     def get_max_sh_channels(self):
         return (self.max_sh_degree + 1) ** 2
@@ -221,10 +251,10 @@ class GaussianModel:
             return torch.exp(-0.5 * (self.get_t - timestamp) ** 2 / self.get_scaling_t ** 2)
         else:
             return torch.ones_like(self.get_t)
-    # same in 3dgs
+
     def get_covariance(self, scaling_modifier=1):
         return self.covariance_activation(self.get_scaling, scaling_modifier, self._rotation)
-    # same in 3dgs
+
     def oneupSHdegree(self):
         if self.active_sh_degree < self.max_sh_degree:
             self.active_sh_degree += 1
@@ -346,7 +376,9 @@ class GaussianModel:
                 {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
                 {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"},
             ]
-        
+        if self.uncertainty_model is not None:
+            l.append({'params': list(self.uncertainty_model.parameters()), 'lr': training_args.uncertainty_lr, "name": "uncertainty_model"})
+
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
         self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init * self.spatial_lr_scale,
                                                     lr_final=training_args.position_lr_final * self.spatial_lr_scale,
@@ -369,12 +401,12 @@ class GaussianModel:
             if param_group["name"] == "t":
                 lr = self.t_scheduler_args(iteration)
                 param_group['lr'] = lr
-    # same in 3dgs
+
     def reset_opacity(self):
         opacities_new = inverse_sigmoid(torch.min(self.get_opacity, torch.ones_like(self.get_opacity) * 0.01))
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
-    # same in 3dgs
+
     def replace_tensor_to_optimizer(self, tensor, name):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
@@ -389,10 +421,12 @@ class GaussianModel:
 
                 optimizable_tensors[group["name"]] = group["params"][0]
         return optimizable_tensors
-    # same in 3dgs
+
     def _prune_optimizer(self, mask):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
+            if group["name"] in self._statically_sized_props:
+                continue
             stored_state = self.optimizer.state.get(group['params'][0], None)
             if stored_state is not None:
                 stored_state["exp_avg"] = stored_state["exp_avg"][mask]
@@ -407,7 +441,7 @@ class GaussianModel:
                 group["params"][0] = nn.Parameter(group["params"][0][mask].requires_grad_(True))
                 optimizable_tensors[group["name"]] = group["params"][0]
         return optimizable_tensors
-    # adding dynamic
+
     def prune_points(self, mask):
         valid_points_mask = ~mask
         optimizable_tensors = self._prune_optimizer(valid_points_mask)
@@ -435,10 +469,12 @@ class GaussianModel:
             self._scaling_t = torch.zeros_like(self._opacity)
             self._velocity = torch.zeros_like(self._xyz)
             self.t_gradient_accum = torch.zeros_like(self._opacity)
-    # same in 3dgs
+
     def cat_tensors_to_optimizer(self, tensors_dict):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
+            if group["name"] in self._statically_sized_props:
+                continue
             assert len(group["params"]) == 1
             extension_tensor = tensors_dict[group["name"]]
             stored_state = self.optimizer.state.get(group['params'][0], None)
@@ -461,7 +497,7 @@ class GaussianModel:
                 optimizable_tensors[group["name"]] = group["params"][0]
 
         return optimizable_tensors
-    # adding dynamic
+
     def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_normal, new_scaling,
                               new_rotation, new_t, new_scaling_t, new_velocity):
         if self.enable_dynamic:
@@ -666,37 +702,3 @@ class GaussianModel:
         self.denom[update_filter] += 1
         if self.enable_dynamic:
             self.t_gradient_accum[update_filter] += self._t.grad.clone()[update_filter]
-
-
-    def construct_list_of_attributes(self):
-        l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
-        # All channels except the 3 DC
-        for i in range(self._features_dc.shape[1]*self._features_dc.shape[2]):
-            l.append('f_dc_{}'.format(i))
-        for i in range(self._features_rest.shape[1]*self._features_rest.shape[2]):
-            l.append('f_rest_{}'.format(i))
-        l.append('opacity')
-        for i in range(self._scaling.shape[1]):
-            l.append('scale_{}'.format(i))
-        for i in range(self._rotation.shape[1]):
-            l.append('rot_{}'.format(i))
-        return l
-
-    def save_ply(self, path):
-        mkdir_p(os.path.dirname(path))
-
-        xyz = self._xyz.detach().cpu().numpy()
-        normals = self._normal.detach().cpu().numpy()
-        f_dc = self._features_dc.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
-        f_rest = self._features_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
-        opacities = self._opacity.detach().cpu().numpy()
-        scale = self._scaling.detach().cpu().numpy()
-        rotation = self._rotation.detach().cpu().numpy()
-
-        dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
-
-        elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
-        elements[:] = list(map(tuple, attributes))
-        el = PlyElement.describe(elements, 'vertex')
-        PlyData([el]).write(path)

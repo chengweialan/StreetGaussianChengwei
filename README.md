@@ -118,13 +118,13 @@ CUDA_VISIBLE_DEVICES=0 python train.py --config configs/waymo_reconstruction.yam
 CUDA_VISIBLE_DEVICES=1 python train.py --config configs/waymo_nvs.yaml source_path=data/waymo_scenes/0158150 model_path=eval_output/waymo_nvs/0158150
 
 # KITTI image reconstruction
-CUDA_VISIBLE_DEVICES=0 python train.py --config configs/kitti_reconstruction.yaml source_path=/home/chengwei/Desktop/summer_research/SUDS/depth_recover/kitti_mot/training/image_02/0001 model_path=eval_output/kitti_reconstruction/0002 start_frame=0 end_frame=10
+CUDA_VISIBLE_DEVICES=0 python train.py --config configs/kitti_reconstruction.yaml source_path=/data/chensheng/kitti/kitti_mot/training/image_02/0002 model_path=eval_output/kitti_reconstruction/0002 start_frame=90 end_frame=140
 
 
 CUDA_VISIBLE_DEVICES=0 python train.py --config configs/kitti_reconstruction.yaml source_path=/data/chensheng/kitti/kitti_mot/training/image_02/0001 model_path=eval_output/kitti_reconstruction/0001 start_frame=380 end_frame=431
 
 # VKITTI2 image reconstruction
-CUDA_VISIBLE_DEVICES=0 python train.py --config configs/vkitti_reconstruction.yaml source_path=/home/chengwei/Desktop/summer_research/SUDS/depth_recover/vkitti2/Scene01/clone model_path=eval_output/vkitti_reconstruction/0002 start_frame=0 end_frame=10
+CUDA_VISIBLE_DEVICES=0 python train.py --config configs/vkitti_reconstruction.yaml source_path=/data/chensheng/kitti/VKITTI2/Scene02/clone model_path=eval_output/vkitti_reconstruction/0002 start_frame=90 end_frame=140
 
 
 
@@ -209,10 +209,20 @@ CUDA_VISIBLE_DEVICES=1 python train.py --config configs/emer_reconstruction.yaml
 
 CUDA_VISIBLE_DEVICES=1 python train.py --config configs/emer_reconstruction.yaml source_path=/data/chengwei/S3/processed/training/022 model_path=eval_output/waymo_reconstruction/022_dynamic_normal_v_smooth
 
+
+CUDA_VISIBLE_DEVICES=0 python train.py --config configs/emer_reconstruction.yaml source_path=/media/msc-auto/HDD/dataset/waymo/processed/training/022 model_path=eval_output/waymo_reconstruction/022_dynamic_normal_neg_fov
+
+
+CUDA_VISIBLE_DEVICES=0 python train.py --config configs/emer_reconstruction.yaml source_path=/media/msc-auto/HDD/dataset/waymo/processed/training/022 model_path=eval_output/waymo_reconstruction/022_dino_uncertainty
+
 ##  Evaluate
 
-CUDA_VISIBLE_DEVICES=0 python evaluate.py --config_path eval_output/waymo_reconstruction/022_50000_pvg_format/config.yaml
+CUDA_VISIBLE_DEVICES=1 python evaluate.py --config_path eval_output/waymo_reconstruction/022_50000_pvg_format/config.yaml
+
+CUDA_VISIBLE_DEVICES=1 python separate.py --config_path eval_output/waymo_reconstruction/022_dynamic_normal_v_smooth/config.yaml
 
 gdown --continue 1CDuzEbjK1hPbMItoJwrLIMgK25FSRM6_
 
 /data/chensheng/kitti
+
+/media/msc-auto/HDD/dataset

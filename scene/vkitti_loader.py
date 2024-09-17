@@ -1,8 +1,6 @@
-
 import os
 import cv2
-import sys
-import open3d as o3d
+
 import imageio.v2 as imageio
 import torch
 import numpy as np
@@ -98,8 +96,6 @@ def transform_poses_pca(poses, fix_radius=0):
         scale_factor = 1. / (np.max(np.abs(poses_recentered[:, :3, 3])) + 1e-5)
         scale_factor = min(1 / 10, scale_factor)
 
-    # To match the size
-    # scale_factor=1
     poses_recentered[:, :3, 3] *= scale_factor
     transform = np.diag(np.array([scale_factor] * 3 + [1])) @ transform
 
@@ -126,7 +122,7 @@ def get_rotation(roll, pitch, heading):
 
     return rot
 
-# deal with kitti_mot
+
 def tracking_calib_from_txt(calibration_path):
     """
     Extract tracking calibration information from a KITTI tracking calibration file.
@@ -179,7 +175,7 @@ def tracking_calib_from_txt(calibration_path):
         "Tr_imu2velo": Tr_imu2velo,
     }
 
-# deal with kitti_mot
+
 def calib_from_txt(calibration_path):
     """
     Read the calibration files and extract the required transformation matrices and focal length.
@@ -251,7 +247,7 @@ def calib_from_txt(calibration_path):
 
     return imu2v, v2c, c2leftRGB, c2rightRGB, focal
 
-# deal with kitti_mot
+
 def get_poses_calibration(basedir, oxts_path_tracking=None, selected_frames=None):
     """
     Extract poses and calibration information from the KITTI dataset.
@@ -386,7 +382,7 @@ def invert_transformation(rot, t):
     inv_translation = np.concatenate([rot.T, t[:, None]], axis=1)
     return np.concatenate([inv_translation, np.array([[0.0, 0.0, 0.0, 1.0]])])
 
-# deal with kitti_mot
+
 def get_camera_poses_tracking(poses_velo_w_tracking, tracking_calibration, selected_frames, scene_no=None):
     exp = False
     camera_poses = []
@@ -449,7 +445,7 @@ def get_camera_poses_tracking(poses_velo_w_tracking, tracking_calibration, selec
 
     return np.array(camera_poses)
 
-# deal with kitti_mot
+
 def get_scene_images_tracking(tracking_path, sequence, selected_frames):
     [start_frame, end_frame] = selected_frames
     img_name = []
@@ -540,7 +536,6 @@ def _get_kitti_information(path):
      c = c.split("\n", 1)[1]
      return np.array([[_convert_to_float(j) for j in i.split(' ')] for i in c.splitlines()])
 
-# not used
 def _get_scene_objects(basedir):
     """
 
@@ -634,7 +629,6 @@ def _get_scene_objects(basedir):
 
     return object_pose, vehicles_meta, max_obj, bboxes_by_frame
 
-# Get points from depth image under world coordinates
 def inverse_projection(depth, intrinsics, c2w, valid_depth_mask=None):
     """
     Performs inverse projection from depth map to 3D points in world coordinates.
@@ -677,41 +671,13 @@ def inverse_projection(depth, intrinsics, c2w, valid_depth_mask=None):
     return points[:, :3]
 
 
-def voxel_downsample(pointcloud, pointcloud_timestamp,voxel_size):
-    print(f'before:{pointcloud.shape}')
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(pointcloud[:, :3])
-
-    # 进行体素下采样
-    pcd_downsampled = pcd.voxel_down_sample(voxel_size=voxel_size)
-    downsampled_points = np.asarray(pcd_downsampled.points)
-
-    if downsampled_points.size == 0:
-        raise ValueError("Downsampled point cloud is empty. Adjust voxel size or check input data.")
-
-    kdtree = o3d.geometry.KDTreeFlann(pcd)
-
-    indices = []
-    for point in downsampled_points:
-        _, idx, _ = kdtree.search_knn_vector_3d(point, 1)
-        indices.append(idx[0])
-
-    indices = np.array(indices)
-
-    downsampled_timestamps = pointcloud_timestamp[indices]
-
-    pointcloud = np.hstack((downsampled_points, pointcloud[indices, 3:]))
-    pointcloud_timestamp = downsampled_timestamps
-
-    print(f'end:{pointcloud.shape}')
-
-    return pointcloud,pointcloud_timestamp
-
-
 def readVKittiInfo(args):
+    
+    
     cam_infos = []
     points = []
     points_time = []
+    scale_factor = 0.2 # Scale factor for the depth
 
     basedir = args.source_path
     extrinsic = _get_kitti_information(os.path.join(basedir, 'extrinsic.txt')) # (n_frames * n_cameras, 18)
@@ -728,14 +694,11 @@ def readVKittiInfo(args):
     seg_filenames = []
     sky_filenames = []
     
-    ply_paths=[]
-    bin_paths=[]
-
     rgb_dir = os.path.join(basedir, 'frames/rgb')
     depth_dir = os.path.join(basedir, 'frames/depth')
     segm_dir = os.path.join(basedir, 'frames/classSegmentation')
     sky_mask_dir = os.path.join(basedir, 'frames/sky_mask')
-    n_cam = len(camera_ls) # [0,1]
+    n_cam = len(camera_ls)
     
     selected_frames = [args.start_frame, args.end_frame]
  
@@ -748,7 +711,6 @@ def readVKittiInfo(args):
         depth_folder = os.path.join(depth_dir, camera_dir)
         sky_mask_folder = os.path.join(sky_mask_dir, camera_dir)
 
-        os.makedirs(sky_mask_folder, exist_ok=True)
         # TODO: Check mismatching numbers of poses and Images like in loading script for llf
         for frame in sorted(os.listdir(frame_folder)):
             if frame.endswith('.jpg'):
@@ -762,8 +724,7 @@ def readVKittiInfo(args):
 
                     depth_path = os.path.join(depth_folder, 'depth_' + '{:05}'.format(frame_num) + '.png')
                     depth_filenames.append(depth_path)
-
-
+                    
                     # depth = cv2.imread(depth_path, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH) / 100.
                     # depths.append(depth)
 
@@ -776,15 +737,7 @@ def readVKittiInfo(args):
                         
                     #     class_segm_img = (np.asarray(Image.open(seg_gt_name)))
                     #     segm.append(class_segm_img)
-
                     sky_mask_path = os.path.join(sky_mask_folder, 'sky_mask_' + '{:05}'.format(frame_num) + '.png')
-
-                    # Create sky mask from depth image if sky mask simage does not exist
-                    if not os.path.exists(sky_mask_path):
-                        depth_img = cv2.imread(depth_path, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
-                        valid_mask = (depth_img == 65535)  
-                        valid_mask_uint8 = (valid_mask.astype(np.uint8)) * 255
-                        cv2.imwrite(sky_mask_path, valid_mask_uint8)
                     sky_filenames.append(sky_mask_path)
                         
                     ext = extrinsic[frame_num * n_cam: frame_num * n_cam + n_cam, :][camera][2:]
@@ -802,9 +755,9 @@ def readVKittiInfo(args):
                     # Match OpenGL definition of Z
                     pose[:3, :3] = np.matmul(np.eye(3), np.matmul(np.eye(3), R))
                     # Rotate pi around Z
+                    pose[:3, 2] = -pose[:3, 2]
+                    pose[:3, 1] = -pose[:3, 1]
                     poses.append(pose)
-
-                    # pose: camera to world
                     frame_id.append([frame_num, camera, 0])
 
     poses = np.array(poses).astype(np.float32) # (n_frames, 4, 4)
@@ -812,6 +765,9 @@ def readVKittiInfo(args):
     intrinsics = intrinsic[0, 2:] # (n_cameras, 4)
     focal_X, focal_Y = intrinsics[0], intrinsics[1]
     cx, cy = intrinsics[2], intrinsics[3]
+    
+    poses[:, :, 1:3] *= -1
+    poses[..., :3, 3] *= scale_factor
 
     c2ws = poses
 
@@ -833,36 +789,14 @@ def readVKittiInfo(args):
         T = w2c[:3, 3]
 
         depth_map = cv2.imread(depth_filenames[idx], cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
-        valid_mask =~(depth_map==65535)
-        depth_map = depth_map / 100.0
+        valid_mask = ~(depth_map == 65535)
+        depth_map = (depth_map / 100.) * scale_factor
         point_xyz_world = inverse_projection(depth_map, intrinsics, c2w, valid_mask)
-        # print(point_xyz_world) 
-        # THE QUESTION IS TO MOVE POINTCLOUDS TO (0,0,0) AND ROTATE THE COORDINATES TO ALIGN THE LIDAR CLOUDS
         depth_map = np.where(valid_mask, depth_map, 0.0)
-
         points.append(point_xyz_world)
-        
-
         point_time = np.full_like(point_xyz_world[:, :1], timestamp)
         points_time.append(point_time)
 
-
-        if args.voxel_downsample:
-            points_now=np.concatenate(points,axis=0)
-            points_time_now=np.concatenate(points_time,axis=0)
-            if points_now.shape[0]>args.num_pts:
-                points_now,points_time_now=voxel_downsample(points_now,points_time_now,args.voxel_size)
-                print(f"after:")
-                print(points_now.shape,points_time_now.shape)
-                points=[]
-                points_time=[]
-                points.append(points_now)
-                points_time.append(points_time_now)
-
-        
-
-        
-        
         cam_infos.append(CameraInfo(uid=idx, R=R, T=T,
                                     image=image,
                                     image_path=image_filenames[idx], image_name=image_filenames[idx],
@@ -875,6 +809,10 @@ def readVKittiInfo(args):
     
     pointcloud = np.concatenate(points, axis=0)
     pointcloud_timestamp = np.concatenate(points_time, axis=0)
+
+    indices = np.random.choice(pointcloud.shape[0], args.num_pts, replace=True)
+    pointcloud = pointcloud[indices]
+    pointcloud_timestamp = pointcloud_timestamp[indices]
 
     # normalize poses
     w2cs = np.zeros((len(cam_infos), 4, 4))
@@ -893,50 +831,7 @@ def readVKittiInfo(args):
         cam_info.T[:] = w2c[:3, 3]
         cam_info.depth_map[:] *= scale_factor
     pointcloud = (np.pad(pointcloud, ((0, 0), (0, 1)), constant_values=1) @ transform.T)[:, :3]
-    pointcloud = (np.pad(pointcloud, ((0, 0), (0, 1)), constant_values=1))[:, :3]
 
-    point_norms=np.linalg.norm(pointcloud[:,:3],axis=1)
-    norm_mask=point_norms<80*scale_factor
-    
-    pointcloud=pointcloud[norm_mask]
-    pointcloud_timestamp=pointcloud_timestamp[norm_mask]
-    print(pointcloud.shape)
-
-    # 全局体素下采样，弃用
-
-    # pcd = o3d.geometry.PointCloud()
-    # pcd.points = o3d.utility.Vector3dVector(pointcloud[:, :3])
-
-    # voxel_size = 0.005  # 体素大小
-    # pcd_downsampled = pcd.voxel_down_sample(voxel_size=voxel_size)
-    # downsampled_points = np.asarray(pcd_downsampled.points)
-
-    # if downsampled_points.size == 0:
-    #     raise ValueError("Downsampled point cloud is empty. Adjust voxel size or check input data.")
-
-    # kdtree = o3d.geometry.KDTreeFlann(pcd)
-
-    # indices = []
-    # for point in downsampled_points:
-    #     _, idx, _ = kdtree.search_knn_vector_3d(point, 1)
-    #     indices.append(idx[0])
-
-    # indices = np.array(indices)
-
-    # downsampled_timestamps = pointcloud_timestamp[indices]
-
-    # pointcloud = np.hstack((downsampled_points, pointcloud[indices, 3:]))
-    # pointcloud_timestamp = downsampled_timestamps
-
-    # print(pointcloud.shape)
-
-
-    if pointcloud.shape[0] > args.num_pts:
-        indices = np.random.choice(pointcloud.shape[0], args.num_pts, replace=True)
-        pointcloud = pointcloud[indices]
-        pointcloud_timestamp = pointcloud_timestamp[indices]
-
-    print(pointcloud.shape)
     if args.eval:
         num_frame = len(cam_infos)//2
         train_cam_infos = [c for idx, c in enumerate(cam_infos) if (idx % num_frame + 1) % args.testhold != 0]
@@ -948,21 +843,15 @@ def readVKittiInfo(args):
     # for kitti have some static ego videos, we dont calculate radius here
     nerf_normalization = getNerfppNorm(train_cam_infos)
     nerf_normalization['radius'] = 1
-    if not args.voxel_downsample:
-        ply_path = os.path.join(args.source_path, "points3d.ply")
-    else:
-        ply_path = os.path.join(args.source_path, "points3d_voxel.ply")
-    # TODO: for debug
-    rgbs = np.random.random((pointcloud.shape[0], 3))
-    storePly(ply_path, pointcloud, rgbs, pointcloud_timestamp)
+
+    ply_path = os.path.join(args.source_path, "points3d.ply")
+    if not os.path.exists(ply_path):
+        rgbs = np.random.random((pointcloud.shape[0], 3))
+        storePly(ply_path, pointcloud, rgbs, pointcloud_timestamp)
     try:
         pcd = fetchPly(ply_path)
     except:
         pcd = None
-
-    if args.visualize_pointcloud:
-        ply_paths.append(ply_path)
-        visualize_multiple_point_clouds(ply_paths,bin_paths)
 
     time_interval = (time_duration[1] - time_duration[0]) / (frame_num - 1)
 
@@ -976,137 +865,20 @@ def readVKittiInfo(args):
 
     return scene_info
 
-def visualize_point_cloud(points):
-    """
-    Visualize a point cloud using Open3D.
-    
-    Args:
-        points (np.ndarray): The point cloud as an (N, 3) array.
-    """
-    # Create an Open3D PointCloud object
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(points)
-    
-    # Optional: Set a uniform color for the point cloud (e.g., white)
-    pcd.paint_uniform_color([1, 0, 1])
-    
-    # Visualize the point cloud
-    o3d.visualization.draw_geometries([pcd])
-
-def load_point_cloud_from_bin(bin_file_path):
-    """
-    Load a point cloud from a .bin file.
-    
-    Args:
-        bin_file_path (str): Path to the .bin file.
-        
-    Returns:
-        np.ndarray: The point cloud as an (N, 3) array.
-    """
-    # Load the binary file
-    point_cloud = np.fromfile(bin_file_path, dtype=np.float32).reshape(-1, 4)
-    # Extract XYZ coordinates
-    points = point_cloud[:, :3]
-    return points
-
-def load_point_cloud_from_ply(ply_file_path):
-    """
-    Load a point cloud from a .ply file using Open3D.
-    
-    Args:
-        ply_file_path (str): Path to the .ply file.
-        
-    Returns:
-        o3d.geometry.PointCloud: The loaded point cloud.
-    """
-    pcd = o3d.io.read_point_cloud(ply_file_path)
-    return pcd
-
-def visualize_multiple_point_clouds(ply_files, bin_files, axis_size=1.0, point_size=1.0):
-    """
-    Visualize multiple PLY and BIN point clouds using Open3D with a large coordinate frame and adjustable point size.
-    
-    Args:
-        ply_files (list of str): List of paths to .ply files.
-        bin_files (list of str): List of paths to .bin files.
-        axis_size (float): Size of the coordinate axis.
-        point_size (float): Size of the points in the point cloud.
-    """
-    pcd_list = []
-    for i, ply_file in enumerate(ply_files):
-        pcd = load_point_cloud_from_ply(ply_file)
-        
-        points = np.asarray(pcd.points)
-        
-        # 将 y 和 z 坐标变为负数
-        points[:, 1] = -points[:, 1]  
-        points[:, 2] = -points[:, 2]  
-        pcd.points = o3d.utility.Vector3dVector(points)
-
-        max_norm = np.max(np.linalg.norm(points, axis=1))
-        print(f"PLY File: {ply_file}, Max Norm: {max_norm}")
-
-        color = np.random.rand(3)
-        pcd.paint_uniform_color(color)
-        
-        pcd_list.append(pcd)
-    
-
-    for i, bin_file in enumerate(bin_files):
-        points = load_point_cloud_from_bin(bin_file)
-
-        max_norm = np.max(np.linalg.norm(points, axis=1))
-        print(f"BIN File: {bin_file}, Max Norm: {max_norm}")
-        
-
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(points)
-        
-        color = np.random.rand(3)
-        pcd.paint_uniform_color(color)
-        
-        pcd_list.append(pcd)
-    
-    coordinate_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=axis_size, origin=[0, 0, 0])
-    pcd_list.append(coordinate_frame)
-    
-
-    vis = o3d.visualization.Visualizer()
-    vis.create_window()
-
-    for pcd in pcd_list:
-        vis.add_geometry(pcd)
-
-    render_option = vis.get_render_option()
-    render_option.point_size = point_size
-    
-    # Run the visualizer
-    vis.run()
-    vis.destroy_window()
-
-
-
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source_path", type=str, default="/home/chengwei/Desktop/summer_research/SUDS/depth_recover/vkitti2/Scene01/clone")
+    parser.add_argument("--source_path", type=str, default="/media/msc-auto/HDD/dataset/kitti/VKITTI2/Scene02/clone")
     parser.add_argument("--start_frame", type=int, default=0)
-    parser.add_argument("--end_frame", type=int, default=10)
-    parser.add_argument("--frame_interval", type=int, default=10)
+    parser.add_argument("--end_frame", type=int, default=100)
+    parser.add_argument("--frame_interval", type=int, default=1)
     parser.add_argument("--time_duration", type=list, default=[0, 1])
     parser.add_argument("--num_pts", type=int, default=100000)
     parser.add_argument("--fix_radius", type=float, default=0)
     parser.add_argument("--debug_cuda", action="store_true")
     parser.add_argument("--eval", action="store_true")
     parser.add_argument("--testhold", type=int, default=10)
-    parser.add_argument("--voxel_downsample", action="store_true", default=False, help="Enable voxel downsampling.")
-    parser.add_argument("--voxel_size",type=float,default=0.15)
     args = parser.parse_args()
 
     scene_info = readVKittiInfo(args)
-
-    ply_files = ['/home/chengwei/Desktop/summer_research/SUDS/depth_recover/vkitti2/Scene01/clone/points3d.ply']
-    # Get a list of all .bin files in the directory
-    bin_files = ['/home/chengwei/Desktop/summer_research/SUDS/depth_recover/kitti_mot/training/velodyne/0001/000000.bin']
-
-    visualize_multiple_point_clouds(ply_files, bin_files)
+    # print(scene_info)

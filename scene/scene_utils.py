@@ -63,7 +63,6 @@ def getNerfppNorm(cam_info):
         center = avg_cam_center
         dist = np.linalg.norm(cam_centers - center, axis=0, keepdims=True)
         diagonal = np.max(dist)
-        print(center,diagonal)
         return center.flatten(), diagonal
 
     cam_centers = []

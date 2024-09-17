@@ -6,7 +6,7 @@ class EnvLight(torch.nn.Module):
 
     def __init__(self, resolution=1024):
         super().__init__()
-        self.to_opengl = torch.tensor([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=torch.float32, device="cuda")# 转化为opengl坐标系
+        self.to_opengl = torch.tensor([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=torch.float32, device="cuda")
         self.base = torch.nn.Parameter(
             0.5 * torch.ones(6, resolution, resolution, 3, requires_grad=True),
         )

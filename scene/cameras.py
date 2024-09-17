@@ -66,8 +66,8 @@ class Camera(nn.Module):
 
         self.world_view_transform = torch.tensor(getWorld2View2(R, T, trans, scale)).transpose(0, 1).cuda()
         if cx is not None:
-            self.FoVx = 2 * math.atan(0.5*self.image_width / fx)
-            self.FoVy = 2 * math.atan(0.5*self.image_height / fy)
+            self.FoVx = 2 * math.atan(0.5*self.image_width / fx) if FoVx is None else FoVx
+            self.FoVy = 2 * math.atan(0.5*self.image_height / fy) if FoVy is None else FoVy
             self.projection_matrix = getProjectionMatrixCenterShift(self.znear, self.zfar, cx, cy, fx, fy,
                                                                     self.image_width, self.image_height).transpose(0, 1).cuda()
         else:

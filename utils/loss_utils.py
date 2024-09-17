@@ -13,6 +13,8 @@ import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
 from math import exp
+import torch.nn as nn
+from kornia.filters import laplacian, spatial_gradient
 
 def psnr(img1, img2):
     mse = F.mse_loss(img1, img2)
@@ -59,7 +61,45 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
         return ssim_map.mean()
     else:
         return ssim_map
+
+
+def better_ssim(img1, img2, window_size=11, size_average=True):
+    channel = img1.size(-3)
+    window = create_window(window_size, channel)
+
+    if img1.is_cuda:
+        window = window.cuda(img1.get_device())
+    window = window.type_as(img1)
+
+    return _better_lssim(img1, img2, window, window_size, channel, size_average)
+
+def _better_lssim(img1, img2, window, window_size, channel, size_average=True):
+    # 计算局部均值
+    mu1 = F.conv2d(img1, window, padding=window_size // 2, groups=channel)
+    mu2 = F.conv2d(img2, window, padding=window_size // 2, groups=channel)
+
+    C1 = 0.01 ** 2
+    C2 = 0.03 ** 2
+    C3=C2/2
     
+    L = (2 * mu1 * mu2 + C1) / (mu1.pow(2) + mu2.pow(2) + C1)
+
+    sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size // 2, groups=channel) - mu1.pow(2)
+    sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size // 2, groups=channel) - mu2.pow(2)
+    sigma12 = F.conv2d(img1 * img2, window, padding=window_size // 2, groups=channel) - mu1 * mu2
+
+    C = (2 * torch.sqrt(sigma1_sq) * torch.sqrt(sigma2_sq) + C2) / (sigma1_sq + sigma2_sq + C2)
+
+    S = (sigma12 + C3) / (torch.sqrt(sigma1_sq) * torch.sqrt(sigma2_sq) + C3)
+
+    # (1 - L) * (1 - C) * (1 - S)
+    lssim_map = 1-(1 - L) * (1 - C) * (1 - S)
+
+    if size_average:
+        return lssim_map.mean()
+    else:
+        return lssim_map
+
 def tv_loss(depth):
     c, h, w = depth.shape[0], depth.shape[1], depth.shape[2]
     count_h = c * (h - 1) * w
@@ -67,3 +107,50 @@ def tv_loss(depth):
     h_tv = torch.square(depth[..., 1:, :] - depth[..., :h-1, :]).sum()
     w_tv = torch.square(depth[..., :, 1:] - depth[..., :, :w-1]).sum()
     return 2 * (h_tv / count_h + w_tv / count_w)
+
+def cal_gradient(data):
+    """
+    data: [1, C, H, W]
+    """
+    kernel_x = [[-1., 0., 1.], [-2., 0., 2.], [-1., 0., 1.]]
+    kernel_x = torch.FloatTensor(kernel_x).unsqueeze(0).unsqueeze(0).to(data.device)
+
+    kernel_y = [[-1., -2., -1.], [0., 0., 0.], [1., 2., 1.]]
+    kernel_y = torch.FloatTensor(kernel_y).unsqueeze(0).unsqueeze(0).to(data.device)
+
+    weight_x = nn.Parameter(data=kernel_x, requires_grad=False)
+    weight_y = nn.Parameter(data=kernel_y, requires_grad=False)
+
+    grad_x = F.conv2d(data, weight_x, padding='same')
+    grad_y = F.conv2d(data, weight_y, padding='same')
+    gradient = torch.abs(grad_x) + torch.abs(grad_y)
+
+    return gradient
+
+
+def bilateral_smooth_loss(data, image, mask):
+    """
+    image: [C, H, W]
+    data: [C, H, W]
+    mask: [C, H, W]
+    """
+    rgb_grad = cal_gradient(image.mean(0, keepdim=True).unsqueeze(0)).squeeze(0)  # [1, H, W]
+    data_grad = cal_gradient(data.mean(0, keepdim=True).unsqueeze(0)).squeeze(0)  # [1, H, W]
+
+    smooth_loss = (data_grad * (-rgb_grad).exp() * mask).mean()
+
+    return smooth_loss
+
+
+def second_order_edge_aware_loss(data, img):
+    return (spatial_gradient(data[None], order=2)[0, :, [0, 2]].abs() * torch.exp(-10*spatial_gradient(img[None], order=1)[0].abs())).sum(1).mean()
+
+
+def first_order_edge_aware_loss(data, img):
+    return (spatial_gradient(data[None], order=1)[0].abs() * torch.exp(-spatial_gradient(img[None], order=1)[0].abs())).sum(1).mean()
+
+def first_order_edge_aware_norm_loss(data, img):
+    return (spatial_gradient(data[None], order=1)[0].abs() * torch.exp(-spatial_gradient(img[None], order=1)[0].norm(dim=1, keepdim=True))).sum(1).mean()
+
+def first_order_loss(data):
+    return spatial_gradient(data[None], order=1)[0].abs().sum(1).mean()

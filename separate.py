@@ -18,7 +18,7 @@ from tqdm import tqdm
 from argparse import ArgumentParser
 from torchvision.utils import save_image
 from omegaconf import OmegaConf
-
+from pprint import pformat
 EPS = 1e-5
 
 @torch.no_grad()
@@ -50,16 +50,13 @@ def separation(scene : Scene, renderFunc, renderArgs, env_map=None):
 if __name__ == "__main__":
     # Set up command line argument parser
     parser = ArgumentParser(description="Training script parameters")
-    parser.add_argument("--config", type=str, required=True)
-    parser.add_argument("--base_config", type=str, default = "configs/base.yaml")
-    args, _ = parser.parse_known_args()
+    parser.add_argument("--config_path", type=str, required=True)
+    params, _ = parser.parse_known_args()
     
-    base_conf = OmegaConf.load(args.base_config)
-    second_conf = OmegaConf.load(args.config)
-    cli_conf = OmegaConf.from_cli()
-    args = OmegaConf.merge(base_conf, second_conf, cli_conf)
+    args = OmegaConf.load(params.config_path)
     args.resolution_scales = args.resolution_scales[:1]
-    print(args)
+    print('Configurations:\n {}'.format(pformat(OmegaConf.to_container(args, resolve=True, throw_on_missing=True))))
+ 
 
     seed_everything(args.seed)
 
@@ -78,6 +75,7 @@ if __name__ == "__main__":
     checkpoints = glob.glob(os.path.join(args.model_path, "chkpnt*.pth"))
     assert len(checkpoints) > 0, "No checkpoints found."
     checkpoint = sorted(checkpoints, key=lambda x: int(x.split("chkpnt")[-1].split(".")[0]))[-1]
+    print(f"Loading checkpoint {checkpoint}")
     (model_params, first_iter) = torch.load(checkpoint)
     gaussians.restore(model_params, args)
     
@@ -91,4 +89,4 @@ if __name__ == "__main__":
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
     separation(scene, render, (args, background), env_map=env_map)
 
-    print("\Rendering statics and dynamics complete.")
+    print("Rendering statics and dynamics complete.")

@@ -6,7 +6,7 @@ import numpy as np
 from tqdm import tqdm
 from PIL import Image
 from scene.scene_utils import CameraInfo, SceneInfo, getNerfppNorm, fetchPly, storePly
-from utils.graphics_utils import BasicPointCloud
+from utils.graphics_utils import BasicPointCloud, focal2fov
 import imageio
 import skimage
 
@@ -83,6 +83,7 @@ def readEmerWaymoInfo(args):
     recompute_occ_grid = args.recompute_occ_grid
     use_bg_gs = args.use_bg_gs
     white_background = args.white_background
+    neg_fov = args.neg_fov
     
 
     num_pts = args.num_pts
@@ -110,7 +111,7 @@ def readEmerWaymoInfo(args):
         end_time += 1
 
     frame_num = end_time - start_time
-    assert frame_num == 50, "frame_num should be 50"
+    # assert frame_num == 50, "frame_num should be 50"
     time_duration = args.time_duration
     time_interval = (time_duration[1] - time_duration[0]) / (end_time - start_time)
     
@@ -280,11 +281,17 @@ def readEmerWaymoInfo(args):
             fy = float(K[1, 1])
             cx = float(K[0, 2])
             cy = float(K[1, 2])
-            FovX = FovY = -1.0
+            height, width = HWs[cam_idx]
+            if neg_fov:
+                FovY = -1.0
+                FovX = -1.0
+            else:
+                FovY = focal2fov(fy, height)
+                FovX = focal2fov(fx, width)
             cam_infos.append(CameraInfo(uid=idx * 10 + cam_idx, R=R, T=T, FovY=FovY, FovX=FovX,
                                         image=images[cam_idx], 
                                         image_path=image_paths[cam_idx], image_name=f"{t:03d}_{cam_idx}",
-                                        width=HWs[cam_idx][1], height=HWs[cam_idx][0], timestamp=timestamp,
+                                        width=width, height=height, timestamp=timestamp,
                                         pointcloud_camera = point_camera,
                                         fx=fx, fy=fy, cx=cx, cy=cy, 
                                         sky_mask=sky_masks[cam_idx],

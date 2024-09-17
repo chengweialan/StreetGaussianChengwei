@@ -50,7 +50,7 @@ def loadCam(args, id, cam_info: CameraInfo, resolution_scale):
         image_rgb = cv2.resize(cam_info.image, resolution)
     else:
         image_rgb = cam_info.image
-    image_rgb = torch.from_numpy(image_rgb).float().permute(2, 0, 1)#转换通道
+    image_rgb = torch.from_numpy(image_rgb).float().permute(2, 0, 1)
     gt_image = image_rgb[:3, ...]
 
     if cam_info.sky_mask is not None:
@@ -91,6 +91,7 @@ def loadCam(args, id, cam_info: CameraInfo, resolution_scale):
         # TODO: may need to consider overlap
         pts_depth[0, uv[:, 1], uv[:, 0]] = uvz[:, 2]
         pts_depth = torch.from_numpy(pts_depth).float()
+
     elif cam_info.depth_map is not None:
         if cam_info.depth_map.shape[:2] != resolution[::-1]:
             depth_map = cv2.resize(cam_info.depth_map, resolution)
